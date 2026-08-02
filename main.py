@@ -1,5 +1,7 @@
+import os
 import sys
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
@@ -9,21 +11,37 @@ from handlers.start import start_command
 from handlers.user_messages import handle_user_message
 from handlers.admin_replies import handle_admin_reply
 
-# إعداد التسجيل (Logging) لمتابعة أحداث البوت
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
+async def start_dummy_health_server():
+    """خادم ويب مصغر لاستجابة فحص الصحة (Health Check) للمنصات المجانية مثل Render Web Service"""
+    port = int(os.getenv("PORT", "0"))
+    if port == 0:
+        return
+
+    async def handle_client(reader, writer):
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 15\r\n\r\nBot is running!"
+        writer.write(response.encode("utf-8"))
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_server(handle_client, "0.0.0.0", port)
+    logger.info(f"🌐 خادم الفحص المجاني يعمل على المنفذ: {port}")
+    asyncio.create_task(server.serve_forever())
+
 async def post_init(application):
-    """تهيئة قاعدة البيانات عند بدء تشغيل التطبيق"""
+    """تهيئة قاعدة البيانات وبدء خادم الاستجابة عند الحاجة"""
     logger.info("⚡ جاري تهيئة قاعدة البيانات...")
     await db_manager.init_db()
     logger.info("✅ تم تهيئة قاعدة البيانات بنجاح.")
+    await start_dummy_health_server()
 
 def main():
-    # التحقق من الإعدادات
     try:
         validate_config()
     except ValueError as e:
@@ -34,14 +52,10 @@ def main():
 
     logger.info("🚀 جاري بدء تشغيل البوت...")
 
-    # بناء تطبيق البوت
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # تسجيل معالج الأوامر
     app.add_handler(CommandHandler("start", start_command))
 
-    # تسجيل معالجات الرسائل
-    # 1. معالج ردود المدير (عندما يقوم المدير بعمل Reply على رسالة إشعار)
     app.add_handler(
         MessageHandler(
             filters.User(user_id=ADMIN_ID) & filters.REPLY,
@@ -49,7 +63,6 @@ def main():
         )
     )
 
-    # 2. معالج رسائل المستخدمين العامة (غير الأوامر)
     app.add_handler(
         MessageHandler(
             ~filters.COMMAND,
@@ -57,7 +70,6 @@ def main():
         )
     )
 
-    # تشغيل البوت بواسطة Polling
     logger.info("🤖 البوت يعمل الآن ويستقبل الرسائل بنجاح!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
