@@ -18,76 +18,70 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if not target_user_id:
         await update.message.reply_text(
-            "⚠️ لم يتم العثور على صاحب هذه الرسالة في قاعدة البيانات. قد تكون الرسالة قديمة أو غير مرتبطة بنظام الإشعارات."
+            "لم يتم العثور على صاحب هذه الرسالة في قاعدة البيانات. قد تكون الرسالة قديمة."
         )
         return
 
     try:
-        # إرسال رد المدير إلى المستخدم الأصلي مجهول الهوية
+        # ارسال رد المدير للمستخدم - نص عادي بدون parse_mode لتفادي مشاكل الرموز الخاصة
         if update.message.text:
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=f"💬 *رد من الإدارة:*\n\n{update.message.text}",
-                parse_mode="Markdown"
+                text="رد من الادارة:\n\n" + update.message.text,
             )
         else:
             await context.bot.copy_message(
                 chat_id=target_user_id,
                 from_chat_id=user.id,
                 message_id=update.message.message_id,
-                caption=f"💬 *رد من الإدارة:*\n\n{update.message.caption or ''}",
-                parse_mode="Markdown"
             )
 
         # تحديد رسائل المستخدم كمردود عليها ومقروءة
         await db_manager.mark_as_replied(target_user_id)
 
-        await update.message.reply_text("✅ تم إرسال الرد بنجاح إلى المستخدم.")
+        await update.message.reply_text("تم ارسال الرد بنجاح للمستخدم.")
 
         # جلب بيانات المستخدم الذي تم الرد عليه
         user_info = await db_manager.get_user_info(target_user_id)
         user_name = user_info["full_name"] if user_info else str(target_user_id)
         replier_name = user.full_name or user.username or str(user.id)
 
-        # محتوى إشعار الرد للمشرفين الآخرين
+        # نص الاشعار - بدون Markdown تماما لضمان الوصول عند وجود اي رموز خاصة
         reply_text = update.message.text or update.message.caption or "[وسائط]"
+        separator = "-" * 30
         reply_notification = (
-            f"↩️ *رد من المشرف:* {replier_name}\n"
-            f"👤 *إلى المستخدم:* {user_name} (`{target_user_id}`)\n"
-            f"{'─' * 28}\n"
-            f"{reply_text}"
+            "رد من المشرف: " + replier_name + "\n"
+            "الى المستخدم: " + user_name + " (" + str(target_user_id) + ")\n"
+            + separator + "\n"
+            + reply_text
         )
 
-        # جلب ملخص الرسائل غير المردود عليها
+        # ملخص الرسائل المعلقة - نص عادي
         unreplied = await db_manager.get_unreplied_summary()
         if unreplied:
-            summary_lines = [f"📊 *الرسائل المعلقة بعد الرد:*\n{'─' * 28}"]
+            lines = ["الرسائل المعلقة بعد الرد:\n" + separator]
             for i, entry in enumerate(unreplied, 1):
-                uname = entry["username"] or "بدون يوزر"
-                summary_lines.append(
-                    f"{i}. {entry['full_name']} (@{uname})\n"
-                    f"   🆔 `{entry['user_id']}` — 📬 {entry['unreplied']} رسالة\n"
-                    f"   💡 `/history {entry['user_id']}`"
+                uname = "@" + entry["username"] if entry["username"] else "بدون يوزر"
+                lines.append(
+                    str(i) + ". " + entry["full_name"] + " (" + uname + ")\n"
+                    "   ID: " + str(entry["user_id"]) + " - " + str(entry["unreplied"]) + " رسالة معلقة\n"
+                    "   /history " + str(entry["user_id"])
                 )
-            summary_text = "\n".join(summary_lines)
+            summary_text = "\n".join(lines)
         else:
-            summary_text = "✅ *لا توجد رسائل معلقة — تم الرد على الجميع!* 🎉"
+            summary_text = "لا توجد رسائل معلقة - تم الرد على الجميع!"
 
-        # إشعار جميع المشرفين (إرسال الرد + الملخص)
+        # ارسال الاشعار لكل المشرفين - بدون parse_mode لضمان وصول الرسالة دائما
         for admin_id in ADMIN_IDS:
             try:
-                # إشعار المشرفين الآخرين بأن زميلهم رد (ليس الذي رد نفسه)
                 if admin_id != user.id:
                     await context.bot.send_message(
                         chat_id=admin_id,
                         text=reply_notification,
-                        parse_mode="Markdown"
                     )
-                # إرسال ملخص المعلقة لجميع المشرفين بما فيهم الذي رد
                 await context.bot.send_message(
                     chat_id=admin_id,
                     text=summary_text,
-                    parse_mode="Markdown"
                 )
             except Exception as e:
                 print(f"Error notifying admin {admin_id}: {e}")
@@ -95,5 +89,5 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         print(f"Error sending reply to user {target_user_id}: {e}")
         await update.message.reply_text(
-            f"❌ تعذر إرسال الرد للمستخدم (قد يكون قام بحظر البوت أو حذف حسابه).\nتفاصيل الخطأ: {e}"
+            "تعذر ارسال الرد للمستخدم. تفاصيل الخطأ: " + str(e)
         )
