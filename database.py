@@ -19,7 +19,7 @@ class Database:
                 )
             """)
 
-            # جدول الرسائل مع حقل is_read للتتبع
+            # جدول الرسائل مع حقلي is_read و is_replied للتتبع
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,16 +28,21 @@ class Database:
                     admin_message_id INTEGER,
                     message_text TEXT,
                     is_read INTEGER NOT NULL DEFAULT 0,
+                    is_replied INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
 
-            # إضافة عمود is_read للجدول القديم إن لم يكن موجوداً (ترقية آمنة)
-            try:
-                await db.execute("ALTER TABLE messages ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0")
-            except Exception:
-                pass  # العمود موجود مسبقاً
+            # ترقية آمنة للجدول القديم — إضافة الأعمدة الجديدة إن لم تكن موجودة
+            for col_sql in [
+                "ALTER TABLE messages ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE messages ADD COLUMN is_replied INTEGER NOT NULL DEFAULT 0",
+            ]:
+                try:
+                    await db.execute(col_sql)
+                except Exception:
+                    pass  # العمود موجود مسبقاً
 
             await db.commit()
 
@@ -59,8 +64,8 @@ class Database:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
-                INSERT INTO messages (user_id, user_message_id, admin_message_id, message_text, is_read, created_at)
-                VALUES (?, ?, ?, ?, 0, ?)
+                INSERT INTO messages (user_id, user_message_id, admin_message_id, message_text, is_read, is_replied, created_at)
+                VALUES (?, ?, ?, ?, 0, 0, ?)
             """, (user_id, user_message_id, admin_message_id, message_text, now))
             await db.commit()
 
@@ -115,6 +120,40 @@ class Database:
                 (user_id,)
             )
             await db.commit()
+
+    async def mark_as_replied(self, user_id: int):
+        """تحديد جميع رسائل مستخدم معين كمردود عليها"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE messages SET is_replied = 1, is_read = 1 WHERE user_id = ? AND is_replied = 0",
+                (user_id,)
+            )
+            await db.commit()
+
+    async def get_unreplied_summary(self) -> list[dict]:
+        """
+        جلب ملخص الأشخاص الذين لم يُرد عليهم بعد.
+        يُرجع قائمة بالمستخدمين الذين لديهم رسائل غير مردود عليها.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("""
+                SELECT u.user_id, u.full_name, u.username, COUNT(m.id) as unreplied
+                FROM messages m
+                JOIN users u ON m.user_id = u.user_id
+                WHERE m.is_replied = 0
+                GROUP BY m.user_id
+                ORDER BY unreplied DESC
+            """) as cursor:
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "user_id": r[0],
+                        "full_name": r[1],
+                        "username": r[2],
+                        "unreplied": r[3],
+                    }
+                    for r in rows
+                ]
 
     async def get_user_info(self, user_id: int) -> dict | None:
         """جلب بيانات مستخدم واحد"""
