@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import ADMIN_ID
+from config import is_admin
 from database import db_manager
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -14,11 +14,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = f"@{user.username}" if user.username else None
     await db_manager.save_or_update_user(user.id, full_name, username)
 
-    if user.id == ADMIN_ID:
+    if is_admin(user.id):
+        unread_total = await db_manager.get_unread_count()
+        unread_text = f"📬 لديك {unread_total} رسالة غير مقروءة." if unread_total > 0 else "✅ لا توجد رسائل غير مقروءة."
         await update.message.reply_text(
-            "مرحباً بك يا مدير! 👋\n"
-            "البوت جاهز لاستقبال الرسائل من المستخدمين وتوجيهها إليك.\n"
-            "للرد على أي مستخدم، قم بعمل (Reply) مباشر على رسالة الإشعار الخاصة به."
+            f"مرحباً بك يا مدير! 👋\n"
+            f"البوت جاهز لاستقبال الرسائل من المستخدمين وتوجيهها إليك.\n"
+            f"للرد على أي مستخدم، قم بعمل (Reply) مباشر على رسالة الإشعار الخاصة به.\n\n"
+            f"{unread_text}\n\n"
+            f"📋 *الأوامر المتاحة:*\n"
+            f"• `/history [user_id]` — عرض كامل رسائل مستخدم\n"
+            f"• `/stats` — إحصائيات البوت",
+            parse_mode="Markdown"
         )
     else:
         await update.message.reply_text(

@@ -5,11 +5,12 @@ import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
-from config import BOT_TOKEN, ADMIN_ID, validate_config
+from config import BOT_TOKEN, ADMIN_IDS, validate_config
 from database import db_manager
 from handlers.start import start_command
 from handlers.user_messages import handle_user_message
 from handlers.admin_replies import handle_admin_reply
+from handlers.admin_commands import history_command, stats_command
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -39,6 +40,7 @@ async def post_init(application):
     logger.info("⚡ جاري تهيئة قاعدة البيانات...")
     await db_manager.init_db()
     logger.info("✅ تم تهيئة قاعدة البيانات بنجاح.")
+    logger.info(f"👥 المدراء المسجلون: {ADMIN_IDS}")
     await start_dummy_health_server()
 
 def main():
@@ -54,15 +56,22 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
+    # أوامر عامة
     app.add_handler(CommandHandler("start", start_command))
 
+    # أوامر المدراء
+    app.add_handler(CommandHandler("history", history_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+
+    # ردود المدراء على رسائل المستخدمين (Reply فقط من المدراء)
     app.add_handler(
         MessageHandler(
-            filters.User(user_id=ADMIN_ID) & filters.REPLY,
+            filters.User(user_id=ADMIN_IDS) & filters.REPLY,
             handle_admin_reply
         )
     )
 
+    # رسائل المستخدمين العاديين
     app.add_handler(
         MessageHandler(
             ~filters.COMMAND,

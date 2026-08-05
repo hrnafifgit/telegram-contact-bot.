@@ -1,16 +1,16 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import ADMIN_ID
+from config import is_admin
 from database import db_manager
 
 async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج ردود المدير على رسائل المستخدمين"""
+    """معالج ردود المدراء على رسائل المستخدمين"""
     user = update.effective_user
     if not user or not update.message:
         return
 
-    # التأكد من أن المنسق هو المدير وأن الرسالة عبارة عن رد (Reply)
-    if user.id != ADMIN_ID or not update.message.reply_to_message:
+    # التأكد من أن المرسل مدير وأن الرسالة رد (Reply)
+    if not is_admin(user.id) or not update.message.reply_to_message:
         return
 
     replied_msg_id = update.message.reply_to_message.message_id
@@ -23,22 +23,24 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     try:
-        # إرسال رد المدير إلى المستخدم الأصلي مجهول الهوية (بدون إظهار حساب المدير)
+        # إرسال رد المدير إلى المستخدم الأصلي مجهول الهوية
         if update.message.text:
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=f"💬 **رد من الإدارة:**\n\n{update.message.text}",
+                text=f"💬 *رد من الإدارة:*\n\n{update.message.text}",
                 parse_mode="Markdown"
             )
         else:
-            # نقل الصور أو الوسائط إذا أرسلها المدير
             await context.bot.copy_message(
                 chat_id=target_user_id,
-                from_chat_id=ADMIN_ID,
+                from_chat_id=user.id,
                 message_id=update.message.message_id,
-                caption=f"💬 **رد من الإدارة:**\n\n{update.message.caption or ''}",
+                caption=f"💬 *رد من الإدارة:*\n\n{update.message.caption or ''}",
                 parse_mode="Markdown"
             )
+
+        # تحديد رسائل المستخدم كمقروءة بعد الرد عليها
+        await db_manager.mark_as_read(target_user_id)
 
         await update.message.reply_text("✅ تم إرسال الرد بنجاح إلى المستخدم.")
 
