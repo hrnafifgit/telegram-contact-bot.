@@ -1,7 +1,6 @@
 import os
 import sys
 import logging
-import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
@@ -18,30 +17,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def start_dummy_health_server():
-    """خادم ويب مصغر لاستجابة فحص الصحة (Health Check) للمنصات المجانية مثل Render Web Service"""
-    port = int(os.getenv("PORT", "0"))
-    if port == 0:
-        return
-
-    async def handle_client(reader, writer):
-        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 15\r\n\r\nBot is running!"
-        writer.write(response.encode("utf-8"))
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
-
-    server = await asyncio.start_server(handle_client, "0.0.0.0", port)
-    logger.info(f"🌐 خادم الفحص المجاني يعمل على المنفذ: {port}")
-    asyncio.create_task(server.serve_forever())
+# رابط Webhook — يُضبط في متغيرات البيئة على Render
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip().rstrip("/")
+PORT = int(os.getenv("PORT", "8080"))
 
 async def post_init(application):
-    """تهيئة قاعدة البيانات وبدء خادم الاستجابة عند الحاجة"""
+    """تهيئة قاعدة البيانات عند بدء التشغيل"""
     logger.info("⚡ جاري تهيئة قاعدة البيانات...")
     await db_manager.init_db()
     logger.info("✅ تم تهيئة قاعدة البيانات بنجاح.")
     logger.info(f"👥 المدراء المسجلون: {ADMIN_IDS}")
-    await start_dummy_health_server()
+    if WEBHOOK_URL:
+        logger.info(f"🔗 وضع التشغيل: Webhook — {WEBHOOK_URL}")
+    else:
+        logger.info("🔄 وضع التشغيل: Polling (محلي)")
 
 def main():
     try:
@@ -80,7 +69,20 @@ def main():
     )
 
     logger.info("🤖 البوت يعمل الآن ويستقبل الرسائل بنجاح!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    if WEBHOOK_URL:
+        # ===== وضع Webhook (الإنتاج على Render) =====
+        # تيليجرام يرسل التحديثات فوراً بدون تأخير
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=f"{WEBHOOK_URL}/webhook",
+            url_path="/webhook",
+            allowed_updates=Update.ALL_TYPES,
+        )
+    else:
+        # ===== وضع Polling (التشغيل المحلي للتطوير) =====
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
